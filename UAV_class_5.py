@@ -1,14 +1,37 @@
-#随机寻找，无人机之间没有相互作用的情况
 #最大速度：15m/s
 #初始速度的设置变化
-#随机情况
+#只有菲克定律的情况
+#有一个障碍物的情况
+# ----------------------------------
+# |                                |
+# |        7___8                   |
+# |     6 __| |__(50,70) 1         |
+# |     5 |_   _|2                 |
+# |       4 |_|3                   |
+# |                                |
+# |   (10m every edge)             |
+# |                                |
+# |                                |
+# |                                |
+# |                                |
+# |                                |
+# ----------------------------------
 
 import numpy as np
 
+#保证初始化的时候不在障碍物里面
 def get_initial_coordinates(box_width):
-    x_coord = np.random.random()*(box_width-0.1)
-    y_coord = np.random.random()*(box_width-0.1)
+    x_coord, y_coord = [35, 65]
+    while(in_obstacle(x_coord, y_coord)):
+        x_coord = np.random.random()*(box_width-0.1)
+        y_coord = np.random.random()*(box_width-0.1)
     return x_coord, y_coord
+
+def in_obstacle(x, y):
+    if ((x<=(40+0.1) and x>=(30-0.1)) and (y<=(80+0.1) and y>=(50-0.1)) or \
+            (x<=(50+0.1) and x>=(20-0.1)) and (y<=(70+0.1) and y>=(60-0.1))) :
+        return True
+    return False
 
 # def get_initial_velocity(box_width):
 #     x_vel = (np.random.random() - 0.5) * 2 * box_width
@@ -42,6 +65,7 @@ def get_min_and_sign(x, y):
     else:
         s = np.sign(y)
     return m, s
+
 
 class Uav:
     recognition_radius = 5
@@ -95,6 +119,11 @@ class Uav:
         distance = np.power(
             np.power((other_uav.x_coord-self.x_coord), 2) + np.power((other_uav.y_coord-self.y_coord), 2), 1/2)
         return distance
+    #以下这个函数会再将来被写入上面的函数中======
+    def calculate_point_distance_tome(self, x, y):
+        distance = np.power(
+            np.power((self.x_coord - x), 2) + np.power((self.y_coord - y), 2), 1 / 2)
+        return distance
 
     # 寻找邻居的功能，将在自身感知半径内的无人机全部找出来
     # --input:
@@ -130,12 +159,80 @@ class Uav:
         #     acceleration_x += acceleration_x_for_this_neighbor
         #     acceleration_y += acceleration_y_for_this_neighbor
         #然后是根据菲克定律，由无人机的浓度差造成的加速度
-        #acceleration_x += self.dense_acceleration_x(dense_neighbors)
-        #acceleration_y += self.dense_acceleration_y(dense_neighbors)
+        acceleration_x += self.dense_acceleration_x(dense_neighbors)
+        acceleration_y += self.dense_acceleration_y(dense_neighbors)
         #最后要防止无人机在边界停留
         acceleration_x += self.boundary_acceleration_x()
         acceleration_y += self.boundary_acceleration_y()
+        #障碍物对无人机造成的加速度
+        acceleration_x += self.obstacle_acceleration_x()
+        acceleration_y += self.obstacle_acceleration_y()
         return acceleration_x, acceleration_y
+
+    def obstacle_acceleration_x(self):
+        obstacle_acceleration_x = (self.calculate_obstacle_acceleration(self.x_coord - 20) + self.calculate_obstacle_acceleration(self.x_coord - 50)) \
+                                  * (self.y_coord <= 70 and self.y_coord >= 60) + \
+                                  (self.calculate_obstacle_acceleration(self.x_coord - 30) + self.calculate_obstacle_acceleration(self.x_coord - 40)) \
+                                  * (self.y_coord <= 80 and self.y_coord >= 70 or self.y_coord <= 60 and self.y_coord >= 50) + \
+                                  self.eight_points_accel_x()
+        return obstacle_acceleration_x
+
+    def obstacle_acceleration_y(self):
+        obstacle_acceleration_y = (self.calculate_obstacle_acceleration(self.y_coord - 50) + self.calculate_obstacle_acceleration(self.y_coord - 80))\
+                                  * (self.x_coord<=40 and self.x_coord>=30) + \
+                                  (self.calculate_obstacle_acceleration(self.y_coord - 60) + self.calculate_obstacle_acceleration(self.y_coord - 70))\
+                                  * (self.x_coord<=30 and self.x_coord>=20 or self.x_coord<=50 and self.x_coord>=40) + \
+                                  self.eight_points_accel_y()
+        return obstacle_acceleration_y
+
+    #八个特殊点的加速度计算
+    def eight_points_accel_x(self):
+        eight_points_accel_x = self.cal_eightp_accel_x(50, 70) * (self.x_coord>=50 and self.y_coord>=70)+\
+                self.cal_eightp_accel_x(50, 60) * (self.x_coord>=50 and self.y_coord<=60) +\
+                self.cal_eightp_accel_x(40, 50) * (self.x_coord>=40 and self.y_coord<=50) +\
+                self.cal_eightp_accel_x(30, 50) * (self.x_coord<=30 and self.y_coord<=50) +\
+                self.cal_eightp_accel_x(20, 60) * (self.x_coord<=20 and self.y_coord<=60) +\
+                self.cal_eightp_accel_x(20, 70) * (self.x_coord<=20 and self.y_coord>=70) +\
+                self.cal_eightp_accel_x(30, 80) * (self.x_coord<=30 and self.y_coord>=80) +\
+                self.cal_eightp_accel_x(40, 80) * (self.x_coord>=40 and self.y_coord>=80)
+        return eight_points_accel_x
+
+    def eight_points_accel_y(self):
+        eight_points_accel_y = self.cal_eightp_accel_y(50, 70) * (self.x_coord >= 50 and self.y_coord >= 70) +\
+                self.cal_eightp_accel_y(50, 60) * (self.x_coord >= 50 and self.y_coord <= 60) +\
+                self.cal_eightp_accel_y(40, 50) * (self.x_coord >= 40 and self.y_coord <= 50) +\
+                self.cal_eightp_accel_y(30, 50) * (self.x_coord <= 30 and self.y_coord <= 50) +\
+                self.cal_eightp_accel_y(20, 60) * (self.x_coord <= 20 and self.y_coord <= 60) +\
+                self.cal_eightp_accel_y(20, 70) * (self.x_coord <= 20 and self.y_coord >= 70) +\
+                self.cal_eightp_accel_y(30, 80) * (self.x_coord <= 30 and self.y_coord >= 80) +\
+                self.cal_eightp_accel_y(40, 80) * (self.x_coord >= 40 and self.y_coord >= 80)
+        return eight_points_accel_y
+
+    def cal_eightp_accel_x(self, x, y):
+        #首先计算当前无人机到所指定的八个点其中之一的距离
+        distance = self.calculate_point_distance_tome(x, y)
+        #先计算大小
+        accel = 100 / (np.power(distance, 2) + 1 / np.power(10, 5)) * (distance <= 5)
+        #再计算x方向的大小，正负号别忘记
+        accel_x = accel * np.cos(abs(np.arctan((self.y_coord-y)/(self.x_coord-x)))) * \
+                  np.sign(self.x_coord-x)
+        return accel_x
+
+    def cal_eightp_accel_y(self, x, y):
+        #首先计算当前无人机到所指定的八个点其中之一的距离
+        distance = self.calculate_point_distance_tome(x, y)
+        #先计算大小
+        accel = 100 / (np.power(distance, 2) + 1 / np.power(10, 5)) * (distance <= 5)
+        #再计算x方向的大小，正负号别忘记
+        accel_y = accel * np.sin(abs(np.arctan((self.y_coord-y)/(self.x_coord-x)))) * \
+                  np.sign(self.y_coord-y)
+        return accel_y
+
+    def calculate_obstacle_acceleration(self, signed_d):
+        s = np.sign(signed_d)
+        d = np.abs(signed_d)
+        obstacle_acceleration = self.calculate_boundary_acceleration(d, s)
+        return obstacle_acceleration
 
     def boundary_acceleration_x(self):
         m, s = get_min_and_sign(self.x_coord-0, self.x_coord-self.boarder)

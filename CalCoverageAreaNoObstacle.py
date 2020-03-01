@@ -7,12 +7,6 @@ def distance(patch, uav_x, uav_y):
         np.power((patch.x_coord - uav_x), 2) + np.power((patch.y_coord - uav_y), 2), 1 / 2)
     return distance
 
-def is_not_obstacle(patch):
-    if ((patch.x_coord <= 40 and patch.x_coord >= 30) and (patch.y_coord <= 80 and patch.y_coord >= 50) or \
-            (patch.x_coord <= 50 and patch.x_coord >= 20) and (patch.y_coord <= 70 and patch.y_coord >= 60)):
-        return False
-    return True
-
 #借用netlogo的思维，将地图分为许多小方格，每一个小方格为一个patch
 class Patch:
     area = 1
@@ -29,7 +23,7 @@ class Map:
         self.patch_list = self.get_patch_list(box_width)
         self.map_color_list = self.get_map_color_list(box_width)
         self.searched_area = 0
-        self.total_area = box_width * box_width * Patch.area - 500 * Patch.area
+        self.total_area = box_width * box_width * Patch.area
         self.searched_percen = 0
 
     def get_map_color_list(self, box_width):
@@ -52,10 +46,8 @@ class Map:
         for patch in self.patch_list:
             if distance(patch, uav_x, uav_y) <= uav.Uav.recognition_radius:
                 #如果此patch没有被搜索过则将其标记为已经搜索过,并更新Map对象的seatched_area和searched_percen属性
-                if patch.is_searched == False and is_not_obstacle(patch) == True:
+                if patch.is_searched == False:
                     patch.is_searched = True
                     self.map_color_list[np.int(box_width-patch.y_coord-0.4)][np.int(patch.x_coord-0.4)] = 1
                     self.searched_area = self.searched_area + Patch.area
                     self.searched_percen = self.searched_area / self.total_area
-
-

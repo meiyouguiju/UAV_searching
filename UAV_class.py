@@ -1,3 +1,4 @@
+#只有弹球模型
 import numpy as np
 
 def get_initial_coordinates(box_width):
@@ -112,9 +113,9 @@ class Uav:
                 (self.y_coord - neighbor.y_coord))
             acceleration_x += acceleration_x_for_this_neighbor
             acceleration_y += acceleration_y_for_this_neighbor
-            # 最后要防止无人机在边界停留
-            acceleration_x += self.boundary_acceleration_x()
-            acceleration_y += self.boundary_acceleration_y()
+        # 最后要防止无人机在边界停留
+        acceleration_x += self.boundary_acceleration_x()
+        acceleration_y += self.boundary_acceleration_y()
         return acceleration_x, acceleration_y
 
     def boundary_acceleration_x(self):
