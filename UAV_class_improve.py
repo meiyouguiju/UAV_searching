@@ -1,7 +1,7 @@
 #最大速度：15m/s
 #初始速度的设置变化
 #只有菲克定律的情况
-
+#每一步都释放信息素，信息素的蒸发速度的单位为单位浓度/s
 import numpy as np
 import time
 import matplotlib.pyplot as plt
@@ -62,7 +62,7 @@ class uav_coverage:
                  min_phe_detect_range = 1,
                  max_phe_detect_range = None,
                  phe_release_range = None,
-                 phe_step = None,
+                 #phe_step = None,
                  end_time = 20,
                  pheromone = False,
                  ):
@@ -99,7 +99,7 @@ class uav_coverage:
             self.alpha_time = 10000
         #self.alpha_time = 0.031
         self.ini_phe = ini_phe
-        self.phe_step = phe_step
+        #self.phe_step = phe_step
         self.vel_of_phe_evap= vel_of_phe_evap
         self.coverage_map = np.zeros((self.area_width, self.area_width))
         self.min_phe_detect_range = min_phe_detect_range
@@ -275,29 +275,29 @@ class uav_coverage:
         if t <= self.alpha_time:
             return self.phe_map
         else:
-            return self.release_and_evaporate_phe(t)
+            return self.release_and_evaporate_phe()
 
-    def release_and_evaporate_phe(self, t):
+    def release_and_evaporate_phe(self):
         #如果到了该喷洒的时间，在self.phe_release_range范围内喷洒信息素
-        if self.time_to_release(t):
-            for u in range(self.number_of_uavs):
-                for i in range(self.area_width):
-                    for j in range(self.area_width):
-                        #首先进行坐标的转化
-                        x = j+0.5
-                        y = i+0.5
-                        if np.linalg.norm(np.array([x,y])-self.posotion_of_uavs[u])<=\
-                                self.phe_release_range:
-                            self.phe_map[i][j] += self.ini_phe
+        #if self.time_to_release(t):
+        for u in range(self.number_of_uavs):
+            for i in range(self.area_width):
+                for j in range(self.area_width):
+                    #首先进行坐标的转化
+                    x = j+0.5
+                    y = i+0.5
+                    if np.linalg.norm(np.array([x,y])-self.posotion_of_uavs[u])<=\
+                            self.phe_release_range:
+                        self.phe_map[i][j] += self.ini_phe
         #每一步都需要蒸发，并且将负值置0
-        self.phe_map -= self.vel_of_phe_evap * self.time_step
+        self.phe_map -= self.vel_of_phe_evap
         self.phe_map[self.phe_map<0] = 0
         return self.phe_map
 
-    def time_to_release(self, t):
-        if (self.step(t) - self.step(self.alpha_time)) % (self.step(self.phe_step)) == 0:
-            return True
-        return  False
+    # def time_to_release(self, t):
+    #     if (self.step(t) - self.step(self.alpha_time)) % (self.step(self.phe_step)) == 0:
+    #         return True
+    #     return  False
 
     def step(self, t):
         #print(type(t))
@@ -313,31 +313,103 @@ class uav_coverage:
             #####################################################################
             return accel
 
+    # def cal_accel_phe(self):
+    #     accel = np.zeros((self.number_of_uavs, 2))
+    #     for u in range(self.number_of_uavs):
+    #         min = np.power(10, 5)
+    #         to_x = 0
+    #         to_y = 0
+    #         for i in range(self.area_width):
+    #             for j in range(self.area_width):
+    #                 x = j+0.5
+    #                 y = i+0.5
+    #                 if self.min_phe_detect_range<=\
+    #                         np.linalg.norm(np.array([x,y])-self.posotion_of_uavs[u])\
+    #                         <=self.max_phe_detect_range \
+    #                         and self.phe_map[i][j]<min :
+    #                     min = self.phe_map[i][j]
+    #                     to_x = x
+    #                     to_y = y
+    #         accel[u] = self.phe_attr(to_x, to_y, u) * \
+    #             (np.array([to_x, to_y]) - self.posotion_of_uavs[u])/np.linalg.norm(
+    #             np.array([to_x, to_y]) - self.posotion_of_uavs[u])
+    #     return accel
+
     def cal_accel_phe(self):
         accel = np.zeros((self.number_of_uavs, 2))
+        #对于集群中的每一个无人机
         for u in range(self.number_of_uavs):
-            min = np.power(10, 5)
-            to_x = 0
-            to_y = 0
-            for i in range(self.area_width):
-                for j in range(self.area_width):
-                    x = j+0.5
-                    y = i+0.5
-                    if self.min_phe_detect_range<=\
-                            np.linalg.norm(np.array([x,y])-self.posotion_of_uavs[u])\
-                            <=self.max_phe_detect_range \
-                            and self.phe_map[i][j]<min :
-                        min = self.phe_map[i][j]
-                        to_x = x
-                        to_y = y
+            #根据平均信息素浓度最低的扇形大区来确定无人机的加速度方向和大小；
+            accel[u] = self.phe_attr(self.cal_avg_dense_of_six(self.posotion_of_uavs[u]), self.posotion_of_uavs[u])
+        return  accel
 
-            accel[u] = self.phe_attr(to_x, to_y, u) * \
-                (np.array([to_x, to_y]) - self.posotion_of_uavs[u])/np.linalg.norm(
-                np.array([to_x, to_y]) - self.posotion_of_uavs[u])
+
+    def cal_avg_dense_of_six(self, p):
+        dense_clasify = [[]] * 6 #记录每个大区信息素的浓度，每个大区的浓度为一个list
+        min_dense_clasify = [100000] * 6 #记录每个大区信息素的最低浓度
+        min_dense_coord_clasify = [[]] * 6 #记录每个大区信息素浓度最低值所对应的坐标
+        coord_list = np.array([]) #所有满足距离条件的patch的坐标的数组（xy坐标）
+        dense_list = np.array([]) #所有满足距离条件的patch的坐标的数组（xy坐标）
+        dense_clasify_dict = {
+            0:dense_clasify[0],
+            1:dense_clasify[1],
+            2:dense_clasify[2],
+            -3:dense_clasify[3],
+            -2:dense_clasify[4],
+            -1:dense_clasify[5],
+        }
+        min_dense_clasify_dict = {
+            0: min_dense_clasify[0],
+            1: min_dense_clasify[1],
+            2: min_dense_clasify[2],
+            -3: min_dense_clasify[3],
+            -2: min_dense_clasify[4],
+            -1: min_dense_clasify[5],
+        }
+        min_dense_coord_clasify_dict = {
+            0: min_dense_coord_clasify[0],
+            1: min_dense_coord_clasify[1],
+            2: min_dense_coord_clasify[2],
+            -3: min_dense_coord_clasify[3],
+            -2: min_dense_coord_clasify[4],
+            -1: min_dense_coord_clasify[5],
+        }
+        #n = 0
+        for i in range(self.area_width):
+            for j in range(self.area_width):
+                x = j+ 0.5
+                y = i+ 0.5
+                if self.min_phe_detect_range <= \
+                        np.linalg.norm(np.array([x,y])-p) <=self.max_phe_detect_range:
+                    coord_list = np.append(coord_list, np.array([x, y]))
+                    dense_list = np.append(dense_list, self.phe_map[i, j])
+                    #n += 1
+        # print(n)
+        coord_list = coord_list.reshape((int(coord_list.size/2), 2))
+        dense_list = dense_list.reshape((dense_list.size,))
+        theta_array = np.rad2deg(np.arctan2(coord_list[:,1], coord_list[:,0]))
+        for i in range(theta_array.shape[0]):
+            a = theta_array[i]//60
+            dense_clasify_dict[a].append(dense_list[i])
+            #接下来处理最小值
+            if dense_list[i] < min_dense_clasify_dict[a]:
+                min_dense_clasify_dict[a] = dense_list[i]
+                min_dense_coord_clasify_dict[a][:] = []
+                min_dense_coord_clasify_dict[a].append(coord_list[i])
+            elif dense_list[i] == min_dense_clasify_dict[a]:
+                min_dense_coord_clasify_dict[a].append(coord_list[i])
+        avg_list = list(map(np.mean, dense_clasify))
+        #得到平均浓度最低的大区的序号
+        area_num = avg_list.index(min(avg_list))
+        #计算这个大区中的信息素浓度最低的patches的平均坐标,得到一个数组
+        to_coord = np.array([np.mean(np.array(min_dense_coord_clasify[area_num])[:, 0]), \
+                    np.mean(np.array(min_dense_coord_clasify[area_num])[:, 1])])
+        return to_coord
+
+    def phe_attr(self,to_coord, position_of_current_uav): ###可以修改
+        accel = 10 * \
+                (to_coord - position_of_current_uav)/np.linalg.norm(to_coord - position_of_current_uav)
         return accel
-
-    def phe_attr(self,to_x, to_y, u): ###可以修改
-        return 10
 
     def accel_boundary_cal(self):
         accel = np.zeros((self.number_of_uavs, 2))
@@ -438,8 +510,8 @@ class uav_coverage:
 ##############################################################################################
 ##############################################################################################
 
-def excecute(i, sd, phr,er, coverage_of_scene_method_of_time):
-    scenary_name = sd[i] + '_' + str(phr[i]) + '_' + str(er[i])
+def excecute(i, strategy, sd, phr,er, coverage_of_scene_method_of_time):
+    scenary_name = 'v2_' + sd[i] + '_' + str(phr[i]) + '_' + str(er[i])
     # j_file_name = 'improved_no_obstacle_' + scenary_name + '.json'
     mp4_file_name = scenary_name + '.mp4'
     print('The scenary of {} will be running......'.format(scenary_name))
@@ -448,20 +520,20 @@ def excecute(i, sd, phr,er, coverage_of_scene_method_of_time):
     N = 20
     end_time = 30
     coverage = uav_coverage(number_of_uavs=N, end_time=end_time,
-                            ini_phe= 2, phe_step= 0.2, vel_of_phe_evap= er[i],
+                            ini_phe= 2, vel_of_phe_evap= er[i],
                             max_phe_detect_range= phr[i],
-                            min_phe_detect_range=1, pheromone= True, coverage_strategy= 2)
+                            min_phe_detect_range=1, pheromone= True, coverage_strategy= strategy[i])
     frames = end_time / coverage.time_step
     coverage.coverage()
     # 开始写入文件
 
     coverage_of_scene_method_of_time.append(coverage.coverage_per_time)
-    print('The whole coverage percentage list of {} is here:'.format(scenary_name))  ##################
+    print('The whole coverage percentage of time of scenary {} is here:'.format(scenary_name))  ##################
     print(coverage.coverage_per_time)
-    print('The scenary of {} has done.'.format(scenary_name), '\n')
+    print('The scenary of {} has done.'.format(scenary_name))
 
     if i == 2:
-        with open('coverage_data/change_evaprate_maxrange.json', 'w') as f:#############
+        with open('coverage_data/v2_experiment_other3_5_02.json', 'w') as f:#############
             json.dump(coverage_of_scene_method_of_time, f)
             print('coverage percentage of all the scenary is loaded completed......')##############
 
@@ -474,7 +546,7 @@ def excecute(i, sd, phr,er, coverage_of_scene_method_of_time):
         save_count= 3000
     )
 
-    plt.rcParams['animation.ffmpeg_path'] = 'C:\Program Files\\ffmpeg\\bin\\ffmpeg.exe'
+    plt.rcParams['animation.ffmpeg_path'] = 'D:\Program Files\\ffmpeg\\bin\\ffmpeg.exe'
     writer = FFMpegWriter(fps=15, metadata=dict(artist='Me'), bitrate=1800)
     ani.save("outcome/"+mp4_file_name, writer=writer)################
     print('The mp4 of scenary {} is saved.'.format(scenary_name),'\n')
@@ -484,22 +556,28 @@ def excecute(i, sd, phr,er, coverage_of_scene_method_of_time):
 def main():
     coverage_of_scene_method_of_time = []
     strategy_dict = {
-        0: 'fick_phe',
-        1: 'fick_phe',
-        2: 'fick_phe',
+        0: 'bounce_phe',
+        1: 'mixed_phe',
+        2: 'stochastic_phe',
+    }
+    strategy = {
+        0 : 0,
+        1 : 1,
+        2 : 3,
     }
     phe_max_range = {
-        0: 10,
+        0: None,
         1: None,
-        2: 10,
+        2: None,
     }
     evap_rate = {
-        0: 2,
-        1: 1,
-        2: 1,
+        0: 2/10,
+        1: 2/10,
+        2: 2/10,
     }
-    for i in range(8):
-        excecute(i, strategy_dict, phe_max_range,evap_rate,coverage_of_scene_method_of_time)
+    for i in range(3):
+        excecute(i, strategy, strategy_dict, phe_max_range,evap_rate,coverage_of_scene_method_of_time)
+    # excecute(0, strategy, strategy_dict, phe_max_range, evap_rate, coverage_of_scene_method_of_time)
     print('All is done.')
 
 
