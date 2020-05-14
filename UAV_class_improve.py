@@ -5,6 +5,8 @@
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from matplotlib.path import Path
+import matplotlib.patches as patches
 import matplotlib.animation as animation
 from matplotlib import cm
 from matplotlib.colors import ListedColormap
@@ -79,14 +81,17 @@ class uav_coverage:
         if (isinstance(ini_position_of_uavs, type(np.ones(1)))):
             self.posotion_of_uavs = ini_position_of_uavs
         elif (ini_position_of_uavs == None):
-            self.posotion_of_uavs = self.ini_pos_of_uavs()#初始化无人机的位置，根据area_width######################
+            self.posotion_of_uavs = self.ini_pos_of_uavs(obstacle_type)#初始化无人机的位置，根据area_width######################
         if (isinstance(ini_velocity_of_uavs, type(np.ones(1)))):
             self.velocity_of_uavs = ini_velocity_of_uavs
         elif (ini_velocity_of_uavs == None):
             self.velocity_of_uavs = self.ini_vel_of_uavs()#初始化无人机的速度##############################
         self.sense_range = sense_range
         self.dense_sense_range = dense_sense_range
-        self.obstacle_type = obstacle_type
+        #根据初始函数的参数obstacle_type来初始化障碍物的位置和障碍物区域的面积
+        self.position_of_obs = self.cal_pos_of_obs(obstacle_type)
+        self.obs_area = self.cal_obs_area(obstacle_type)
+        self.obs_type = obstacle_type
         self.coverage_strategy = coverage_strategy
         self.time_step = time_step
         #初始化信息素浓度的地图
@@ -95,6 +100,7 @@ class uav_coverage:
         #初始化自身的alpha值
         if pheromone == True:
             self.alpha_time = self.find_alpha_time()
+            #self.alpha_time = 0
         else:
             self.alpha_time = 10000
         #self.alpha_time = 0.031
@@ -130,10 +136,11 @@ class uav_coverage:
         #计算下一步的加速度（过了时间转折点之后需要考虑信息素的作用）
         while coverage_time < end_time:
             #首先计算普通的加速度，需要根据strategy的类型+
-            #边界加速度+ 信息素加速度(分时段)+
+            #边界加速度+ 信息素加速度(分时段)+障碍物施加的加速度
             self.acceleration = self.strategy[self.coverage_strategy]() + \
                 self.accel_boundary_cal() + \
-                self.accel_phe(coverage_time)
+                self.accel_phe(coverage_time) +\
+                self.accel_obs()
             self.accel_time.append(self.acceleration.copy())
             #喷洒信息素
             #首先更新信息素地图(包含信息素的蒸发)，再使用append添加
@@ -220,6 +227,40 @@ class uav_coverage:
                       width=arrow_width,
                       edgecolor='blue',
                       facecolor='blue')
+        #画障碍物
+        param = self.get_param_obs_concave()
+        x = param[0]
+        y = param[1]
+        h = param[2]
+        w = param[3]
+        t = param[4]
+        verts = [
+            (x, y),
+            (x, y+h),
+            (x+t, y+h),
+            (x+t, y+t),
+            (x+w-t, y+t),
+            (x+w-t, y+h),
+            (x+w, y+h),
+            (x+w, y),
+            (x, y)
+        ]
+
+        codes = [
+            Path.MOVETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.LINETO,
+            Path.CLOSEPOLY,
+        ]
+
+        path = Path(verts, codes)
+        patch = patches.PathPatch(path, facecolor='cyan', lw=2)
+        ax.add_patch(patch)
         #画覆盖区域
         pcm1 = plt.pcolormesh(self.coverage_map_time[frame_slot],
                             cmap= cmap1, rasterized= True, vmin= 0, vmax= 1,
@@ -234,9 +275,129 @@ class uav_coverage:
         ax.set_ylim(0, 100)
         ax.set_title('t = {:.2}'.format(frame_slot/100))
 
-    def ini_pos_of_uavs(self):
+    def cal_pos_of_obs(self, obstacle_type):
+        """此函数用于根据__init__()函数中的obstacle_type来初始化搜索区域中障碍物的位置
+            input: obstacle_type
+            output:a list containing ndarray representing positions of the 'obstacle_type'
+                   and a number representing the area of the obstacle"""
+        #如果obstacle_type是no_obstacle的话，就返回None
+        if obstacle_type == 'no_obstacle':
+            return None
+        elif obstacle_type == 'concave':
+            """    ___2      ___6  
+                   | |       | |    (x,y) is the coordinates of the low-left point of the obstacle
+                  1| |3  4  5| |h   h is the total height of the obstacle
+                   |t|_______| |7   w is the total width of the obstacle
+            (x, y) |___________|    t is the thickness of the obstacle
+                       8 w
+            """
+            #首先得到表示障碍物的一组点的坐标
+            #获取concave障碍物的相关参数
+            param = self.get_param_obs_concave()
+            x = param[0]
+            y = param[1]
+            h = param[2]
+            w = param[3]
+            t = param[4]
+            coor_obs = self.cal_coor_obs_concave(x, y, h, w, t)
+            return coor_obs
+        #后续可以加上其他的情况
+
+    def cal_coor_obs_concave(self, x, y, h, w, t):
+        """calculate the position of the concave obstacle
+            input: x, y, h, w, t
+            output: an ndarray reps the position of the concave obstacle"""
+        pos1 = np.zeros((h, 2))
+        pos2 = np.zeros((t, 2))
+        pos3 = np.zeros((h-t, 2))
+        pos4 = np.zeros((w-2*t, 2))
+        pos5 = np.zeros((h-t, 2))
+        pos6 = np.zeros((t, 2))
+        pos7 = np.zeros((h, 2))
+        pos8 = np.zeros((w, 2))
+        pos1[:,0] = x
+        pos1[:,1] = np.linspace(y, y+h, h, endpoint=False)
+        pos2[:,1] = y+h
+        pos2[:,0] = np.linspace(x, x+t,t, endpoint=False)
+        pos3[:,0] = x+t
+        pos3[:,1] = np.linspace(y+h, y+t, h-t, endpoint=False)
+        pos4[:,1] = y+t
+        pos4[:,0] = np.linspace(x+t, x+w-t, w-2*t, endpoint=False)
+        pos5[:,0] = x+w-t
+        pos5[:,1] = np.linspace(y+t, y+h, h-t, endpoint=False)
+        pos6[:,1] = y+h
+        pos6[:,0] = np.linspace(x+w-t, x+w, t, endpoint=False)
+        pos7[:,0] = x+w
+        pos7[:,1] = np.linspace(y+h, y, h, endpoint=False)
+        pos8[:,1] = y
+        pos8[:,0] = np.linspace(x+w, x, w,endpoint=False)
+        pos = np.append(pos1, pos2)
+        pos = np.append(pos, pos3)
+        pos = np.append(pos, pos4)
+        pos = np.append(pos, pos5)
+        pos = np.append(pos, pos6)
+        pos = np.append(pos, pos7)
+        pos = np.append(pos, pos8)
+        pos = pos.reshape((len(pos1)+len(pos2)+len(pos3)+len(pos4)+len(pos5)+len(pos6)+len(pos7)+len(pos8), 2))
+        return pos
+
+    def cal_obs_area(self, obs_type):
+        """计算障碍物的占地面积"""
+        if obs_type == 'no_obstacle':
+            return 0
+        elif obs_type == 'concave':
+            param = self.get_param_obs_concave()
+            # x = param[0]
+            # y = param[1]
+            h = param[2]
+            w = param[3]
+            t = param[4]
+            return -2*t*t+t*(2*h+w)
+
+
+    def get_param_obs_concave(self):
+        #return[        x,                         y,            h, w, t]
+        return [self.area_width/2-30/2, self.area_width/2-20/2, 20, 30, 5]
+
+
+    def ini_pos_of_uavs(self, obstacle_type):
         pos_of_uavs = np.random.random((self.number_of_uavs, 2)) * (self.area_width - 0.1)
+        #对于pos_of_uavs中每一个无人机的初始位置都要检查，如果再obs的范围内的话，需要
+        #重新生成这个无人机的坐标，直到不在障碍物的区域内为止
+        for i in range(self.number_of_uavs):
+            if self.in_obs(pos_of_uavs[i], obstacle_type):
+                pos_of_uavs[i] = self.step_out_of_obs(obstacle_type)
         return pos_of_uavs
+
+    def step_out_of_obs(self, obstype):
+        """对于在障碍物里面的无人机的坐标，重新计算随机坐标值，直到得到的新坐标不在障碍物里面"""
+        if obstype == 'concave':
+            new_pos = np.zeros((2,))
+            while True:
+                new_pos = np.random.random((2,)) * (self.area_width -0.1)
+                if not self.in_obs(new_pos, obstype):
+                    break
+            return new_pos
+        #还可以进行拓展
+
+    def in_obs(self, p, obstype):
+        if obstype == 'no_obstacle':
+            return False
+        elif obstype == 'concave':
+            param = self.get_param_obs_concave()
+            x = param[0]
+            y = param[1]
+            h = param[2]
+            w = param[3]
+            t = param[4]
+            #开始判断
+            if (x <= p[0] <= x+t and y <= p[1] <= y+h )\
+                    or (x+t <= p[0] <= x+w-t and y <= p[1] <= y+t)\
+                    or(x+w-t <= p[0] <= x+w and y <= p[1] <= y+h):
+                return True
+            else:
+                return  False
+        #还可以加上其他情况
 
     def ini_vel_of_uavs(self):
         vel_norm = np.random.random((self.number_of_uavs, 1)) * self.max_vel
@@ -261,14 +422,15 @@ class uav_coverage:
                     x = j + 0.5
                     y = i + 0.5
                     if np.linalg.norm(np.array([x, y]) - self.posotion_of_uavs[u]) <= self.sense_range \
-                            and self.coverage_map[i][j] != 1:
+                            and self.coverage_map[i][j] != 1\
+                            and not self.in_obs(np.array([x, y]), self.obs_type):
                         self.coverage_map[i][j] = 1
         n = 0
         for i in range(self.area_width):
             for j in range(self.area_width):
                 if self.coverage_map[i][j] == 1:
                     n+=1
-        coverage_per = n / np.power(self.area_width, 2)
+        coverage_per = n / (np.power(self.area_width, 2) - self.obs_area)
         return coverage_per
 
     def update_phe_map(self, t):
@@ -303,6 +465,17 @@ class uav_coverage:
         #print(type(t))
         return int(t/self.time_step)
 
+    def accel_obs(self):
+        """这个函数用来计算障碍物对无人机的加速度的作用"""
+        accel_obs = np.zeros((self.number_of_uavs, 2))
+        if self.obs_type == 'no_obstacle':
+            return accel_obs
+        elif self.obs_type == 'concave':
+            #如果是concave情况的话，需要逐个计算每一个无人机受到的加速度
+            for i in range(self.number_of_uavs):
+                neighbors = self.find_my_obs_neighbors(i, self.sense_range)
+                accel_obs[i] = self.obs_bounce_accel_cal(i, neighbors)
+            return accel_obs
 
     def accel_phe(self, t):
         accel = np.zeros((self.number_of_uavs, 2))
@@ -453,6 +626,16 @@ class uav_coverage:
                     self.posotion_of_uavs[i] - self.posotion_of_uavs[j]))
         return accel
 
+    def obs_bounce_accel_cal(self, i, neighbors):
+        accel = np.array([0., 0.])
+        for j in neighbors:
+            accel += (self.posotion_of_uavs[i] - self.position_of_obs[j]) / np.linalg.norm(
+                self.posotion_of_uavs[i] - self.position_of_obs[j]) * \
+                     self.acceleration_potential_func(np.linalg.norm(
+                         self.posotion_of_uavs[i] - self.position_of_obs[j]))
+        return accel
+
+
     def acceleration_potential_func(self, distance):
         acceleration = 0
         if distance <= self.sense_range:
@@ -488,6 +671,11 @@ class uav_coverage:
                      np.linalg.norm(self.posotion_of_uavs[i]-self.posotion_of_uavs[j]) <= r ]
         return neighbors
 
+    def find_my_obs_neighbors(self, i, r):
+        neighbors = [j for j in range(len(self.position_of_obs)) \
+                     if np.linalg.norm(self.posotion_of_uavs[i] - self.position_of_obs[j]) <= r]
+        return neighbors
+
     def find_concentration_diff(self, i, neighbors):
         num_neighbors = len(neighbors)
         uav_id_left = [j for j in neighbors if \
@@ -510,8 +698,8 @@ class uav_coverage:
 ##############################################################################################
 ##############################################################################################
 
-def excecute(i, strategy, sd, phr,er, coverage_of_scene_method_of_time):
-    scenary_name = 'v2_' + sd[i] + '_' + str(phr[i]) + '_' + str(er[i])
+def excecute(i, strategy, sd, phr,er, phe, coverage_of_scene_method_of_time):
+    scenary_name = 'v2_concave_' + sd[i] + '_' + str(phr[i]) + '_' + str(er[i])
     # j_file_name = 'improved_no_obstacle_' + scenary_name + '.json'
     mp4_file_name = scenary_name + '.mp4'
     print('The scenary of {} will be running......'.format(scenary_name))
@@ -522,18 +710,17 @@ def excecute(i, strategy, sd, phr,er, coverage_of_scene_method_of_time):
     coverage = uav_coverage(number_of_uavs=N, end_time=end_time,
                             ini_phe= 2, vel_of_phe_evap= er[i],
                             max_phe_detect_range= phr[i],
-                            min_phe_detect_range=1, pheromone= True, coverage_strategy= strategy[i])
+                            min_phe_detect_range=1, pheromone= phe[i],
+                            obstacle_type='concave',coverage_strategy= strategy[i])
     frames = end_time / coverage.time_step
     coverage.coverage()
     # 开始写入文件
-
     coverage_of_scene_method_of_time.append(coverage.coverage_per_time)
     print('The whole coverage percentage of time of scenary {} is here:'.format(scenary_name))  ##################
     print(coverage.coverage_per_time)
     print('The scenary of {} has done.'.format(scenary_name))
-
-    if i == 2:
-        with open('coverage_data/v2_experiment_other3_5_02.json', 'w') as f:#############
+    if i == 1:
+        with open('coverage_data/v2_concave_stochastic_phe_and_nophe.json', 'w') as f:#############
             json.dump(coverage_of_scene_method_of_time, f)
             print('coverage percentage of all the scenary is loaded completed......')##############
 
@@ -556,33 +743,29 @@ def excecute(i, strategy, sd, phr,er, coverage_of_scene_method_of_time):
 def main():
     coverage_of_scene_method_of_time = []
     strategy_dict = {
-        0: 'bounce_phe',
-        1: 'mixed_phe',
-        2: 'stochastic_phe',
+        0: 'stochastic_phe_concave',
+        1: 'stochastic_nophe_concave',
     }
     strategy = {
-        0 : 0,
-        1 : 1,
-        2 : 3,
+        0 : 3,
+        1 : 3,
     }
     phe_max_range = {
         0: None,
         1: None,
-        2: None,
     }
     evap_rate = {
         0: 2/10,
         1: 2/10,
-        2: 2/10,
     }
-    for i in range(3):
-        excecute(i, strategy, strategy_dict, phe_max_range,evap_rate,coverage_of_scene_method_of_time)
+    pheromone = {
+        0 : True,
+        1 : False,
+    }
+    for i in range(2):
+        excecute(i, strategy, strategy_dict, phe_max_range,evap_rate,pheromone,coverage_of_scene_method_of_time)
     # excecute(0, strategy, strategy_dict, phe_max_range, evap_rate, coverage_of_scene_method_of_time)
     print('All is done.')
-
-
-
-
 
 
 if __name__ == "__main__":

@@ -45,33 +45,23 @@ import matplotlib.pyplot as plt
 # with open('contrast_phe_and_nophe.json', 'w') as f:
 #     json.dump(all, f)
 #     print('数据写入完毕')
-scenary = {
-    0 : 'bounce',
-    1 : 'mixed',
-    2 : 'fick',
-    3 : 'stochastic',
-    4 : 'bounce_pheromone',
-    5 : 'mixed_pheromone',
-    6 : 'fick_pheromone',
-    7 : 'stochastic_pheromone',
-}
 
-with open ('contrast_phe_and_nophe.json', 'r') as f:
+with open ('coverage_data/v2_concave_stochastic_phe_and_nophe.json', 'r') as f:
     d = json.load(f)
 
-for i in range(4):
-    data1 = d[i]
-    data2 = d[i+4]
-    time = np.linspace(0, 30, 3000)
-    fig, ax = plt.subplots(figsize = (8, 8))
-    ax.grid()
-    ax.plot(time, data1, label = scenary[i])
-    ax.plot(time, data2, label = scenary[i+4])
 
-    ax.legend()
-    ax.set_xlabel('time/s')
-    ax.set_ylabel('coverage percentage')
-    ax.set_title(scenary[i] + ' and ' + scenary[i+4] + '(#uav=20,no_obs)')
+data1 = d[0]
+data2 = d[1]
+time = np.linspace(0, 30, 3000)
+fig, ax = plt.subplots(figsize = (8, 8))
+ax.grid() 
+ax.plot(time, data1, label ='stochastic_phe')
+ax.plot(time, data2, label = 'stochastic_nophe')
+
+ax.legend()
+ax.set_xlabel('time/s')
+ax.set_ylabel('coverage percentage')
+ax.set_title('#uavs_20_concaveObstacle_stochastic_phe_and_nophe')
 
 plt.show()
 
